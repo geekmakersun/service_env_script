@@ -201,6 +201,12 @@ check_environment() {
 
     print_success "Git 版本: $(git --version)"
 
+    # 检查并安装 idn 工具（用于处理国际化域名 IDN）
+    if ! command -v idn &> /dev/null; then
+        print_warning "idn 工具未安装，正在安装..."
+        apt update && apt install -y idn
+    fi
+
     # 检查内存
     local MEM_TOTAL
     MEM_TOTAL=$(free -m | awk '/Mem:/ {print $2}')
@@ -763,37 +769,38 @@ apply_ssl_certificate() {
     print_header "申请并部署 SSL 证书"
 
     if [[ -z "$GITEA_DOMAIN" ]]; then
-        print_error "尚未配置域名，请先进行配置"
-        echo
-        read -p "按回车键继续..."
-        return
+        print_info "尚未配置域名，正在设置..."
+        echo ""
+        
+        # 提示用户输入域名
+        while true; do
+            GITEA_DOMAIN=$(get_input "请输入 Gitea 服务域名" "${GITEA_DOMAIN}")
+            if [[ -z "$GITEA_DOMAIN" ]]; then
+                print_error "域名不能为空"
+                continue
+            fi
+            break
+        done
+        
+        print_success "域名配置完成: ${GITEA_DOMAIN}"
+        echo ""
     fi
 
     print_info "域名: ${GITEA_DOMAIN}"
     
     # 检查 acme.sh 是否安装
-    if ! command -v acme.sh &> /dev/null; then
+    if ! command -v acme.sh &> /dev/null && [ ! -f "$HOME/.acme.sh/acme.sh" ]; then
         print_warning "acme.sh 未安装，正在安装..."
         curl https://get.acme.sh | sh -s email="admin@${GITEA_DOMAIN}"
         source ~/.bashrc
+        # 设置默认 CA 为 Let's Encrypt
+        $HOME/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     fi
-    
-    # 检查 Nginx 配置文件是否存在
-    if [[ ! -f "${NGINX_SITE_DIR}/${GITEA_DOMAIN}.conf" ]]; then
-        print_error "Nginx 配置文件不存在，请先配置 Nginx 反向代理"
-        print_info "请选择菜单选项 6: 配置 Nginx 反向代理"
-        echo
-        read -p "按回车键继续..."
-        return
-    fi
-    
-    # 检查 Nginx 服务是否运行
-    if ! systemctl is-active --quiet nginx; then
-        print_error "Nginx 服务未运行"
-        print_info "请先启动 Nginx 服务: systemctl start nginx"
-        echo
-        read -p "按回车键继续..."
-        return
+
+    # 确保 idn 工具已安装（处理 IDN 国际化域名）
+    if ! command -v idn &> /dev/null; then
+        print_warning "idn 工具未安装，正在安装..."
+        apt update && apt install -y idn
     fi
     
     # 选择申请方式
@@ -846,6 +853,24 @@ apply_ssl_certificate() {
 apply_ssl_webroot() {
     print_info "使用 Webroot 方式申请证书..."
     
+    # 检查 Nginx 配置文件是否存在
+    if [[ ! -f "${NGINX_SITE_DIR}/${GITEA_DOMAIN}.conf" ]]; then
+        print_error "Nginx 配置文件不存在，请先配置 Nginx 反向代理"
+        print_info "请选择菜单选项 6: 配置 Nginx 反向代理"
+        echo
+        read -p "按回车键继续..."
+        return
+    fi
+    
+    # 检查 Nginx 服务是否运行
+    if ! systemctl is-active --quiet nginx; then
+        print_error "Nginx 服务未运行"
+        print_info "请先启动 Nginx 服务: systemctl start nginx"
+        echo
+        read -p "按回车键继续..."
+        return
+    fi
+    
     print_info "请确保:"
     echo "  1. 域名 ${GITEA_DOMAIN} 已正确解析到本服务器"
     echo "  2. 端口 80 已开放且可访问"
@@ -885,7 +910,7 @@ EOF
     
     # 申请证书
     print_info "正在申请 SSL 证书..."
-    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --webroot "${webroot_path}" --email "admin@${GITEA_DOMAIN}"; then
+    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --webroot "${webroot_path}" --server https://acme-v02.api.letsencrypt.org/directory --email "admin@${GITEA_DOMAIN}"; then
         print_success "SSL 证书申请成功"
         
         # 移除临时配置
@@ -930,6 +955,15 @@ EOF
 apply_ssl_standalone() {
     print_info "使用 Standalone 方式申请证书..."
     
+    # 检查 Nginx 配置文件是否存在
+    if [[ ! -f "${NGINX_SITE_DIR}/${GITEA_DOMAIN}.conf" ]]; then
+        print_error "Nginx 配置文件不存在，请先配置 Nginx 反向代理"
+        print_info "请选择菜单选项 6: 配置 Nginx 反向代理"
+        echo
+        read -p "按回车键继续..."
+        return
+    fi
+    
     print_warning "此方式需要临时停止 Nginx 服务"
     print_info "请确保:"
     echo "  1. 域名 ${GITEA_DOMAIN} 已正确解析到本服务器"
@@ -946,7 +980,7 @@ apply_ssl_standalone() {
     
     # 申请证书
     print_info "正在申请 SSL 证书..."
-    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --standalone --email "admin@${GITEA_DOMAIN}"; then
+    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --standalone --server https://acme-v02.api.letsencrypt.org/directory --email "admin@${GITEA_DOMAIN}"; then
         print_success "SSL 证书申请成功"
         
         # 启动 Nginx
@@ -1031,7 +1065,7 @@ EOF
 
     # 申请证书
     print_info "正在申请 SSL 证书..."
-    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns dns_ali --email "admin@${GITEA_DOMAIN}"; then
+    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns dns_ali --server https://acme-v02.api.letsencrypt.org/directory --email "admin@${GITEA_DOMAIN}"; then
         print_success "SSL 证书申请成功"
 
         # 安装证书到标准位置
@@ -1070,42 +1104,84 @@ apply_ssl_cloudflare_dns() {
     print_info "此方式适用于:"
     echo "  - 服务器无法通过公网80端口访问"
     echo "  - 域名使用 Cloudflare DNS 解析"
-    echo "  - 需要 Cloudflare API Token 进行自动验证"
+    echo "  - 需要 Cloudflare API Token 或 Global API Key 进行自动验证"
     echo ""
 
     if ! confirm "是否继续申请证书" "Y"; then
         return
     fi
 
-    # 配置 Cloudflare Token
+    # 配置 Cloudflare 凭证
     local cloudflare_conf="$CONFIG_DIR/cloudflare.conf"
     mkdir -p "$CONFIG_DIR"
     chmod 700 "$CONFIG_DIR"
 
     if [ ! -f "$cloudflare_conf" ]; then
-        print_info "Cloudflare 密钥配置文件不存在，开始创建..."
-        local cloudflare_token
-        read -rp "$(echo -e "${YELLOW}请输入 Cloudflare API Token: ${NC}")" cloudflare_token
+        print_info "Cloudflare 配置文件不存在，开始创建..."
+        local auth_type
+        while true; do
+            read -rp "$(echo -e "${YELLOW}请选择认证方式 (1=API Token, 2=Global API Key): ${NC}")" auth_type
+            if [[ "$auth_type" == "1" || "$auth_type" == "2" ]]; then
+                break
+            fi
+            print_error "请选择 1 或 2"
+        done
 
-        # 导出 Cloudflare 密钥环境变量
-        export CF_Token="$cloudflare_token"
-        
-        # 保存到配置文件以便后续使用
-        cat > "$cloudflare_conf" << EOF
-# Cloudflare API token
+        if [[ "$auth_type" == "1" ]]; then
+            # API Token 方式
+            local cloudflare_token
+            read -rp "$(echo -e "${YELLOW}请输入 Cloudflare API Token: ${NC}")" cloudflare_token
+
+            # 导出 Cloudflare 密钥环境变量
+            export CF_Token="$cloudflare_token"
+            
+            # 保存到配置文件以便后续使用
+            cat > "$cloudflare_conf" << EOF
+# Cloudflare 认证方式: API Token
 CF_Token = $cloudflare_token
 EOF
+        else
+            # Global API Key 方式
+            local cloudflare_email
+            local cloudflare_key
+            read -rp "$(echo -e "${YELLOW}请输入 Cloudflare 邮箱: ${NC}")" cloudflare_email
+            read -rp "$(echo -e "${YELLOW}请输入 Cloudflare Global API Key: ${NC}")" cloudflare_key
+
+            # 导出 Cloudflare 密钥环境变量
+            export CF_Email="$cloudflare_email"
+            export CF_Key="$cloudflare_key"
+            
+            # 保存到配置文件以便后续使用
+            cat > "$cloudflare_conf" << EOF
+# Cloudflare 认证方式: Global API Key
+CF_Email = $cloudflare_email
+CF_Key = $cloudflare_key
+EOF
+        fi
         chmod 600 "$cloudflare_conf"
-        print_success "Cloudflare 密钥配置文件已创建"
+        print_success "Cloudflare 配置文件已创建"
     else
-        print_success "Cloudflare 密钥配置文件已存在"
+        print_success "Cloudflare 配置文件已存在"
         # 从配置文件加载密钥
-        export CF_Token=$(grep "CF_Token" "$cloudflare_conf" | cut -d'=' -f2 | tr -d ' ')
+        if grep -q "CF_Token" "$cloudflare_conf"; then
+            # API Token 方式
+            export CF_Token=$(grep "CF_Token" "$cloudflare_conf" | cut -d'=' -f2 | tr -d ' ')
+        else
+            # Global API Key 方式
+            export CF_Email=$(grep "CF_Email" "$cloudflare_conf" | cut -d'=' -f2 | tr -d ' ')
+            export CF_Key=$(grep "CF_Key" "$cloudflare_conf" | cut -d'=' -f2 | tr -d ' ')
+        fi
+    fi
+
+    # 确保 idn 工具已安装（处理 IDN 国际化域名）
+    if ! command -v idn &> /dev/null; then
+        print_warning "idn 工具未安装，正在安装..."
+        apt update && apt install -y idn
     fi
 
     # 申请证书
     print_info "正在申请 SSL 证书..."
-    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns dns_cf --email "admin@${GITEA_DOMAIN}"; then
+    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns dns_cf --server https://acme-v02.api.letsencrypt.org/directory --email "admin@${GITEA_DOMAIN}"; then
         print_success "SSL 证书申请成功"
 
         # 安装证书到标准位置
@@ -1156,7 +1232,7 @@ apply_ssl_manual_dns() {
     print_info "正在准备 DNS 验证..."
 
     # 使用 manual 方式，需要用户手动添加 DNS 记录
-    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns --email "admin@${GITEA_DOMAIN}"; then
+    if ~/.acme.sh/acme.sh --issue -d "${GITEA_DOMAIN}" --dns --server https://acme-v02.api.letsencrypt.org/directory --email "admin@${GITEA_DOMAIN}"; then
         print_success "SSL 证书申请成功"
 
         # 安装证书到标准位置

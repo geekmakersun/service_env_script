@@ -72,216 +72,316 @@ confirm_operation() {
 
 # 停止并禁用 Gitea 服务
 stop_gitea_service() {
-    log_info "停止 Gitea 服务..."
+    read -p "停止并禁用 Gitea 服务? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "停止 Gitea 服务..."
 
-    if systemctl is-active --quiet gitea 2>/dev/null; then
-        systemctl stop gitea
-        log_info "Gitea 服务已停止"
+        if systemctl is-active --quiet gitea 2>/dev/null; then
+            systemctl stop gitea
+            log_info "Gitea 服务已停止"
+        else
+            log_info "Gitea 服务未运行"
+        fi
+
+        if systemctl is-enabled --quiet gitea 2>/dev/null; then
+            systemctl disable gitea
+            log_info "Gitea 服务已禁用"
+        fi
     else
-        log_info "Gitea 服务未运行"
-    fi
-
-    if systemctl is-enabled --quiet gitea 2>/dev/null; then
-        systemctl disable gitea
-        log_info "Gitea 服务已禁用"
+        log_info "跳过停止 Gitea 服务"
     fi
 }
 
 # 删除 systemd 服务文件
 remove_systemd_service() {
-    log_info "删除 systemd 服务文件..."
+    read -p "删除 systemd 服务文件? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 systemd 服务文件..."
 
-    if [ -f /etc/systemd/system/gitea.service ]; then
-        rm -f /etc/systemd/system/gitea.service
-        log_info "systemd 服务文件已删除"
+        if [ -f /etc/systemd/system/gitea.service ]; then
+            rm -f /etc/systemd/system/gitea.service
+            log_info "systemd 服务文件已删除"
+        fi
+
+        systemctl daemon-reload
+        log_info "systemd 已重载"
+    else
+        log_info "跳过删除 systemd 服务文件"
     fi
-
-    systemctl daemon-reload
-    log_info "systemd 已重载"
 }
 
 # 删除 Gitea 安装目录
 remove_gitea_installation() {
-    log_info "删除 Gitea 安装目录..."
+    read -p "删除 Gitea 安装目录 (/service/gitea)? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Gitea 安装目录..."
 
-    if [ -d /service/gitea ]; then
-        rm -rf /service/gitea
-        log_info "安装目录 /service/gitea 已删除"
+        if [ -d /service/gitea ]; then
+            rm -rf /service/gitea
+            log_info "安装目录 /service/gitea 已删除"
+        fi
+    else
+        log_info "跳过删除 Gitea 安装目录"
     fi
 }
 
 # 删除 Gitea 工作目录
 remove_gitea_workdir() {
-    log_info "删除 Gitea 工作目录..."
+    read -p "删除 Gitea 工作目录 (/var/lib/gitea)? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Gitea 工作目录..."
 
-    if [ -d /var/lib/gitea ]; then
-        rm -rf /var/lib/gitea
-        log_info "工作目录 /var/lib/gitea 已删除"
+        if [ -d /var/lib/gitea ]; then
+            rm -rf /var/lib/gitea
+            log_info "工作目录 /var/lib/gitea 已删除"
+        fi
+    else
+        log_info "跳过删除 Gitea 工作目录"
     fi
 }
 
 # 删除 Gitea 配置目录
 remove_gitea_config() {
-    log_info "删除 Gitea 配置目录..."
+    read -p "删除 Gitea 配置目录 (/etc/gitea)? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Gitea 配置目录..."
 
-    if [ -d /etc/gitea ]; then
-        rm -rf /etc/gitea
-        log_info "配置目录 /etc/gitea 已删除"
+        if [ -d /etc/gitea ]; then
+            rm -rf /etc/gitea
+            log_info "配置目录 /etc/gitea 已删除"
+        fi
+    else
+        log_info "跳过删除 Gitea 配置目录"
     fi
 }
 
 # 删除 Git 用户
 remove_git_user() {
-    log_info "删除 Git 用户..."
+    read -p "删除 Git 用户及主目录? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Git 用户..."
 
-    if id "git" &>/dev/null; then
-        userdel -r git 2>/dev/null || userdel git 2>/dev/null || true
-        log_info "Git 用户已删除"
+        if id "git" &>/dev/null; then
+            userdel -r git 2>/dev/null || userdel git 2>/dev/null || true
+            log_info "Git 用户已删除"
+        else
+            log_info "Git 用户不存在"
+        fi
     else
-        log_info "Git 用户不存在"
+        log_info "跳过删除 Git 用户"
     fi
 }
 
 # 删除 Nginx 站点配置
 remove_nginx_config() {
-    log_info "删除 Nginx 站点配置..."
+    read -p "删除 Nginx 站点配置? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Nginx 站点配置..."
 
-    if [ -d /etc/nginx/sites-enabled ]; then
-        for conf in /etc/nginx/sites-enabled/git.*.conf; do
-            if [ -L "$conf" ]; then
-                rm -f "$conf"
-                log_info "已删除软链接: $conf"
-            fi
-        done
-    fi
+        if [ -d /etc/nginx/sites-enabled ]; then
+            for conf in /etc/nginx/sites-enabled/git.*.conf; do
+                if [ -L "$conf" ]; then
+                    rm -f "$conf"
+                    log_info "已删除软链接: $conf"
+                fi
+            done
+        fi
 
-    if [ -d /etc/nginx/sites-available ]; then
-        for conf in /etc/nginx/sites-available/git.*.conf; do
-            if [ -f "$conf" ]; then
-                rm -f "$conf"
-                log_info "已删除配置文件: $conf"
-            fi
-        done
-    fi
+        if [ -d /etc/nginx/sites-available ]; then
+            for conf in /etc/nginx/sites-available/git.*.conf; do
+                if [ -f "$conf" ]; then
+                    rm -f "$conf"
+                    log_info "已删除配置文件: $conf"
+                fi
+            done
+        fi
 
-    if nginx -t 2>/dev/null; then
-        systemctl reload nginx
-        log_info "Nginx 配置已重载"
+        if nginx -t 2>/dev/null; then
+            systemctl reload nginx
+            log_info "Nginx 配置已重载"
+        else
+            log_warn "Nginx 配置测试失败，跳过重载"
+        fi
     else
-        log_warn "Nginx 配置测试失败，跳过重载"
+        log_info "跳过删除 Nginx 站点配置"
     fi
 }
 
 # 删除 SSL 证书
 remove_ssl_certificates() {
-    log_info "检查并删除 SSL 证书..."
+    read -p "删除 SSL 证书? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "检查并删除 SSL 证书..."
 
-    if [ -d /etc/letsencrypt/live ]; then
-        local cert_found=false
-        for cert_dir in /etc/letsencrypt/live/git.*; do
-            if [ -d "$cert_dir" ]; then
-                cert_found=true
-                domain=$(basename "$cert_dir")
-                log_info "发现证书: $domain"
+        if [ -d /etc/letsencrypt/live ]; then
+            local cert_found=false
+            for cert_dir in /etc/letsencrypt/live/git.*; do
+                if [ -d "$cert_dir" ]; then
+                    cert_found=true
+                    domain=$(basename "$cert_dir")
+                    log_info "发现证书: $domain"
 
-                read -p "删除证书 $domain? (y/n): " confirm
-                if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-                    rm -rf "$cert_dir"
-                    rm -rf "/etc/letsencrypt/archive/$domain" 2>/dev/null
-                    rm -f "/etc/letsencrypt/renewal/${domain}.conf" 2>/dev/null
-                    rm -f "/etc/letsencrypt/renewal/${domain}-*.conf" 2>/dev/null
-                    log_info "证书 $domain 已删除"
+                    read -p "删除证书 $domain? (Y/n): " confirm
+                    confirm=${confirm:-Y}
+                    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+                        rm -rf "$cert_dir"
+                        rm -rf "/etc/letsencrypt/archive/$domain" 2>/dev/null
+                        rm -f "/etc/letsencrypt/renewal/${domain}.conf" 2>/dev/null
+                        rm -f "/etc/letsencrypt/renewal/${domain}-*.conf" 2>/dev/null
+                        log_info "证书 $domain 已删除"
+                    fi
                 fi
+            done
+            if [ "$cert_found" = false ]; then
+                log_info "未发现 Gitea 相关证书"
             fi
-        done
-        if [ "$cert_found" = false ]; then
-            log_info "未发现 Gitea 相关证书"
+        else
+            log_info "Let's Encrypt 目录不存在"
         fi
     else
-        log_info "Let's Encrypt 目录不存在"
+        log_info "跳过删除 SSL 证书"
     fi
 }
 
 # 删除 Webroot 验证目录
 remove_webroot_dirs() {
-    log_info "删除 Webroot 验证目录..."
+    read -p "删除 Webroot 验证目录? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 Webroot 验证目录..."
 
-    if [ -d /var/www ]; then
-        local dir_found=false
-        for webroot_dir in /var/www/git.*; do
-            if [ -d "$webroot_dir" ]; then
-                dir_found=true
-                log_info "发现 Webroot 目录: $webroot_dir"
-                rm -rf "$webroot_dir"
-                log_info "已删除 Webroot 目录: $webroot_dir"
+        if [ -d /var/www ]; then
+            local dir_found=false
+            for webroot_dir in /var/www/git.*; do
+                if [ -d "$webroot_dir" ]; then
+                    dir_found=true
+                    log_info "发现 Webroot 目录: $webroot_dir"
+                    rm -rf "$webroot_dir"
+                    log_info "已删除 Webroot 目录: $webroot_dir"
+                fi
+            done
+            if [ "$dir_found" = false ]; then
+                log_info "未发现 Gitea 相关 Webroot 目录"
             fi
-        done
-        if [ "$dir_found" = false ]; then
-            log_info "未发现 Gitea 相关 Webroot 目录"
+        else
+            log_info "/var/www 目录不存在"
         fi
     else
-        log_info "/var/www 目录不存在"
+        log_info "跳过删除 Webroot 验证目录"
     fi
 }
 
 # 删除续期钩子脚本
 remove_renewal_hooks() {
-    log_info "删除续期钩子脚本..."
+    read -p "删除续期钩子脚本? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除续期钩子脚本..."
 
-    if [ -f /etc/letsencrypt/renewal-hooks/deploy/gitea-restart.sh ]; then
-        rm -f /etc/letsencrypt/renewal-hooks/deploy/gitea-restart.sh
-        log_info "续期钩子脚本已删除"
+        if [ -f /etc/letsencrypt/renewal-hooks/deploy/gitea-restart.sh ]; then
+            rm -f /etc/letsencrypt/renewal-hooks/deploy/gitea-restart.sh
+            log_info "续期钩子脚本已删除"
+        else
+            log_info "续期钩子脚本不存在"
+        fi
+
+        # 删除续期日志
+        if [ -f /var/log/gitea-cert-renewal.log ]; then
+            rm -f /var/log/gitea-cert-renewal.log
+            log_info "续期日志已删除"
+        fi
     else
-        log_info "续期钩子脚本不存在"
+        log_info "跳过删除续期钩子脚本"
     fi
+}
 
-    # 删除续期日志
-    if [ -f /var/log/gitea-cert-renewal.log ]; then
-        rm -f /var/log/gitea-cert-renewal.log
-        log_info "续期日志已删除"
+# 删除 acme.sh 配置
+remove_acme_sh() {
+    read -p "删除 acme.sh 配置? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除 acme.sh 配置..."
+
+        if [ -d "$HOME/.acme.sh" ]; then
+            rm -rf "$HOME/.acme.sh"
+            log_info "acme.sh 目录已删除"
+        else
+            log_info "acme.sh 目录不存在"
+        fi
+
+        # 删除 Cloudflare 配置文件
+        if [ -f /etc/ssl-config/cloudflare.conf ]; then
+            rm -f /etc/ssl-config/cloudflare.conf
+            log_info "Cloudflare 配置文件已删除"
+        else
+            log_info "Cloudflare 配置文件不存在"
+        fi
+    else
+        log_info "跳过删除 acme.sh 配置"
     fi
 }
 
 # 删除数据库
 remove_database() {
-    log_info "数据库处理..."
+    read -p "处理数据库? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "数据库处理..."
 
-    echo ""
-    echo "请选择数据库处理方式:"
-    echo "  1. 保留数据库（推荐）"
-    echo "  2. 删除 MySQL/MariaDB gitea 用户和数据库"
-    echo ""
+        echo ""
+        echo "请选择数据库处理方式:"
+        echo "  1. 保留数据库（推荐）"
+        echo "  2. 删除 MySQL/MariaDB gitea 用户和数据库"
+        echo ""
 
-    read -p "请选择 (1-2): " db_choice
+        read -p "请选择 (1-2): " db_choice
+        db_choice=${db_choice:-1}
 
-    case $db_choice in
-        1)
-            log_info "保留数据库"
-            ;;
-        2)
-            log_info "删除 MySQL/MariaDB gitea 数据库和用户..."
-            if command -v mysql &>/dev/null; then
-                mysql -u root -e "DROP DATABASE IF EXISTS gitea;" 2>/dev/null || true
-                mysql -u root -e "DROP USER IF EXISTS 'gitea'@'localhost';" 2>/dev/null || true
-                mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-                log_info "数据库已删除"
-            else
-                log_warn "MySQL/MariaDB 未安装"
-            fi
-            ;;
-        *)
-            log_info "保留数据库"
-            ;;
-    esac
+        case $db_choice in
+            1)
+                log_info "保留数据库"
+                ;;
+            2)
+                log_info "删除 MySQL/MariaDB gitea 数据库和用户..."
+                if command -v mysql &>/dev/null; then
+                    mysql -u root -e "DROP DATABASE IF EXISTS gitea;" 2>/dev/null || true
+                    mysql -u root -e "DROP USER IF EXISTS 'gitea'@'localhost';" 2>/dev/null || true
+                    mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+                    log_info "数据库已删除"
+                else
+                    log_warn "MySQL/MariaDB 未安装"
+                fi
+                ;;
+            *)
+                log_info "保留数据库"
+                ;;
+        esac
+    else
+        log_info "跳过处理数据库"
+    fi
 }
 
 # 删除日志文件
 remove_log_files() {
-    log_info "删除日志文件..."
+    read -p "删除日志文件? (Y/n): " confirm
+    confirm=${confirm:-Y}
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        log_info "删除日志文件..."
 
-    if [ -d /var/log/nginx/site ]; then
-        rm -f /var/log/nginx/site/git.*.log 2>/dev/null
-        log_info "Nginx 日志已删除"
+        if [ -d /var/log/nginx/site ]; then
+            rm -f /var/log/nginx/site/git.*.log 2>/dev/null
+            log_info "Nginx 日志已删除"
+        fi
+    else
+        log_info "跳过删除日志文件"
     fi
 }
 
@@ -302,6 +402,8 @@ show_cleanup_summary() {
     echo "  - SSL 证书（已确认的）"
     echo "  - Webroot 验证目录"
     echo "  - 续期钩子脚本"
+    echo "  - acme.sh 配置"
+    echo "  - Cloudflare 配置文件"
     echo "  - 日志文件"
     echo ""
     log_info "如需重新部署，请运行: /root/服务脚本库/部署脚本/2..Gitea部署脚本.sh"
@@ -328,6 +430,7 @@ main() {
     remove_ssl_certificates
     remove_webroot_dirs
     remove_renewal_hooks
+    remove_acme_sh
     remove_database
     remove_log_files
 
