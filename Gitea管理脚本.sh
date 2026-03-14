@@ -103,6 +103,7 @@ show_menu() {
         echo "  11. 查看 Gitea 日志"
         echo "  12. 安装 Act Runner (工作流)"
         echo "  13. 删除 Act Runner (工作流)"
+        echo "  14. 修改端口号配置"
         echo "  0. 退出"
         echo ""
 }
@@ -1788,6 +1789,90 @@ delete_act_runner() {
     read -p "按回车键继续..."
 }
 
+# 修改端口号配置
+modify_port_config() {
+    print_header "修改端口号配置"
+
+    # 检查配置文件是否存在
+    if [[ ! -f /etc/gitea/app.ini ]]; then
+        print_error "Gitea 配置文件不存在，请先部署 Gitea"
+        echo ""
+        read -p "按回车键继续..."
+        return 1
+    fi
+
+    # 读取当前配置
+    if [[ -f /etc/gitea/app.ini ]]; then
+        # 读取当前 SSH 端口
+        current_ssh_port=$(grep "^SSH_PORT" /etc/gitea/app.ini | cut -d'=' -f2 | tr -d ' ')
+        # 读取当前 HTTP 端口
+        current_http_port=$(grep "^HTTP_PORT" /etc/gitea/app.ini | cut -d'=' -f2 | tr -d ' ')
+        
+        # 如果配置文件中没有这些值，使用默认值
+        current_ssh_port=${current_ssh_port:-"${GITEA_SSH_PORT}"}
+        current_http_port=${current_http_port:-"${GITEA_HTTP_PORT}"}
+    fi
+
+    echo "当前配置:"
+    echo "  - SSH 端口: ${current_ssh_port}"
+    echo "  - HTTP 端口: ${current_http_port}"
+    echo ""
+
+    # 获取用户输入
+    local new_ssh_port
+    new_ssh_port=$(get_input "请输入新的 SSH 端口" "${current_ssh_port}")
+    
+    local new_http_port
+    new_http_port=$(get_input "请输入新的 HTTP 端口" "${current_http_port}")
+
+    echo ""
+    print_info "新配置:"
+    echo "  - SSH 端口: ${new_ssh_port}"
+    echo "  - HTTP 端口: ${new_http_port}"
+    echo ""
+
+    if ! confirm "确认修改端口配置" "Y"; then
+        print_info "配置修改已取消"
+        echo ""
+        read -p "按回车键继续..."
+        return 0
+    fi
+
+    # 备份原配置文件
+    cp /etc/gitea/app.ini /etc/gitea/app.ini.bak.$(date +%Y%m%d_%H%M%S)
+    print_info "原配置文件已备份"
+
+    # 更新配置文件
+    sed -i "s|^SSH_PORT.*|SSH_PORT = ${new_ssh_port}|" /etc/gitea/app.ini
+    sed -i "s|^HTTP_PORT.*|HTTP_PORT = ${new_http_port}|" /etc/gitea/app.ini
+
+    # 更新脚本中的全局变量
+    GITEA_SSH_PORT="${new_ssh_port}"
+    GITEA_HTTP_PORT="${new_http_port}"
+
+    print_success "端口配置已更新"
+
+    # 重启 Gitea 服务
+    if systemctl is-active --quiet gitea; then
+        print_info "重启 Gitea 服务..."
+        systemctl restart gitea
+        sleep 2
+        if systemctl is-active --quiet gitea; then
+            print_success "Gitea 服务重启成功"
+        else
+            print_error "Gitea 服务重启失败"
+            print_info "查看日志: journalctl -u gitea -n 50"
+        fi
+    else
+        print_warning "Gitea 服务未运行，请手动启动服务"
+    fi
+
+    echo ""
+    print_info "注意: 如果修改了 SSH 端口为 22，请确保该端口未被其他服务占用"
+    echo ""
+    read -p "按回车键继续..."
+}
+
 # 完整部署（一键安装，含HTTPS）
 full_deployment() {
     print_header "完整部署 Gitea（含 HTTPS）"
@@ -1870,10 +1955,13 @@ main() {
             13)
                 delete_act_runner
                 ;;
+            14)
+                modify_port_config
+                ;;
             0)
                 print_info "感谢使用，再见！"
                 exit 0
-                ;;
+                ;; 
 
             *)
                 print_warning "无效选择，请重新输入"
