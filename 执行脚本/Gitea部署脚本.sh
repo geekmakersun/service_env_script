@@ -27,6 +27,9 @@ GITEA_WORK_DIR="/var/lib/gitea"
 NGINX_SITE_DIR="/etc/nginx/sites-available"
 NGINX_LOG_DIR="/var/log/nginx/site"
 CONFIG_DIR="/etc/ssl-config"
+ACT_RUNNER_VERSION="0.2.6"
+ACT_RUNNER_INSTALL_DIR="/service/act-runner"
+ACT_RUNNER_DATA_DIR="/var/lib/act-runner"
 
 # 打印带颜色的文本
 print_color() {
@@ -96,10 +99,12 @@ show_menu() {
     echo "  7. 修复权限问题"
     echo "  8. 查看部署信息"
     echo "  9. 申请并部署 SSL 证书"
-    echo " 10. 重启 Gitea 服务"
-    echo " 11. 查看 Gitea 日志"
-    echo "  0. 退出"
-    echo ""
+    echo "  10. 重启 Gitea 服务"
+        echo "  11. 查看 Gitea 日志"
+        echo "  12. 安装 Act Runner (工作流)"
+        echo "  13. 删除 Act Runner (工作流)"
+        echo "  0. 退出"
+        echo ""
 }
 
 # 获取用户输入（带默认值）
@@ -1523,6 +1528,206 @@ view_gitea_logs() {
     journalctl -u gitea -f --no-pager
 }
 
+# 安装 Act Runner (工作流)
+install_act_runner() {
+    print_header "安装 Act Runner (Gitea Actions)"
+
+    # 创建安装目录
+    mkdir -p "${ACT_RUNNER_INSTALL_DIR}"
+    mkdir -p "${ACT_RUNNER_DATA_DIR}"
+
+    # 检测系统架构
+    local ARCH
+    ARCH=$(uname -m)
+    local RUNNER_ARCH
+    if [[ "$ARCH" == "x86_64" ]]; then
+        RUNNER_ARCH="linux-amd64"
+    elif [[ "$ARCH" == "aarch64" ]]; then
+        RUNNER_ARCH="linux-arm64"
+    else
+        print_error "不支持的系统架构: $ARCH"
+        return 1
+    fi
+
+    # 下载 Act Runner
+    print_info "正在下载 Act Runner ${ACT_RUNNER_VERSION} (${RUNNER_ARCH})..."
+    wget -O "${ACT_RUNNER_INSTALL_DIR}/act_runner" "https://dl.gitea.com/act_runner/${ACT_RUNNER_VERSION}/act_runner-${ACT_RUNNER_VERSION}-${RUNNER_ARCH}"
+
+    # 设置权限
+    chmod +x "${ACT_RUNNER_INSTALL_DIR}/act_runner"
+    chown -R git:git "${ACT_RUNNER_INSTALL_DIR}"
+    chown -R git:git "${ACT_RUNNER_DATA_DIR}"
+
+    # 验证安装
+    if "${ACT_RUNNER_INSTALL_DIR}/act_runner" --version &> /dev/null; then
+        print_success "Act Runner 安装成功: $(${ACT_RUNNER_INSTALL_DIR}/act_runner --version)"
+    else
+        print_error "Act Runner 安装失败"
+        return 1
+    fi
+
+    # 生成配置文件
+    print_info "生成 Act Runner 配置文件..."
+    "${ACT_RUNNER_INSTALL_DIR}/act_runner" generate-config > "${ACT_RUNNER_DATA_DIR}/config.yaml"
+
+    # 修复配置文件，使用主机模式运行
+    print_info "配置 Act Runner 使用主机模式..."
+    # 先删除可能存在的错误配置
+    sed -i '/labels:\s*\[\]/d' "${ACT_RUNNER_DATA_DIR}/config.yaml"
+    # 确保 labels 配置格式正确
+    if ! grep -q "labels:" "${ACT_RUNNER_DATA_DIR}/config.yaml"; then
+        sed -i '/fetch_interval: 2s/a \  labels:' "${ACT_RUNNER_DATA_DIR}/config.yaml"
+    fi
+    # 添加主机模式标签
+    if ! grep -q "linux_amd64:host" "${ACT_RUNNER_DATA_DIR}/config.yaml"; then
+        sed -i '/labels:/a \    - linux_amd64:host' "${ACT_RUNNER_DATA_DIR}/config.yaml"
+    fi
+    # 注释 container 配置
+    sed -i 's|^container:|# container:|g' "${ACT_RUNNER_DATA_DIR}/config.yaml"
+
+    # 创建 Systemd 服务文件
+    cat > /etc/systemd/system/act-runner.service << EOF
+[Unit]
+Description=Gitea Actions Runner
+After=network.target
+
+[Service]
+User=git
+Group=git
+WorkingDirectory=${ACT_RUNNER_DATA_DIR}
+ExecStart=${ACT_RUNNER_INSTALL_DIR}/act_runner daemon --config ${ACT_RUNNER_DATA_DIR}/config.yaml
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    print_success "Act Runner 服务文件创建成功"
+
+    # 重载 systemd
+    systemctl daemon-reload
+
+    # 启用开机自启
+    systemctl enable act-runner
+
+    print_success "Act Runner 安装完成"
+    echo ""
+    print_info "下一步操作:"
+    echo "1. 登录 Gitea 管理界面"
+    echo "2. 进入 '站点管理' > 'Actions' > '运行器'"
+    echo "3. 获取注册令牌"
+    echo ""
+    
+    # 交互式注册
+    if confirm "是否现在注册 Act Runner" "Y"; then
+        print_info "请输入 Gitea 实例 URL (例如: https://git.13aq.com):"
+        local instance_url
+        read -rp "实例 URL: " instance_url
+        
+        print_info "请输入从 Gitea 管理界面获取的注册令牌:"
+        local token
+        read -rp "注册令牌: " token
+        
+        print_info "请输入运行器名称 (默认: Gitea Runner):"
+        local runner_name
+        read -rp "运行器名称: " runner_name
+        runner_name=${runner_name:-"Gitea Runner"}
+        
+        print_info "正在注册 Act Runner..."
+        sudo -u git bash -c "cd ${ACT_RUNNER_DATA_DIR} && ${ACT_RUNNER_INSTALL_DIR}/act_runner register --no-interactive --instance '$instance_url' --token '$token' --name '$runner_name' --labels 'linux_amd64:host'"
+        
+        if [ $? -eq 0 ]; then
+            print_success "Act Runner 注册成功"
+            
+            # 启动服务
+            if confirm "是否立即启动 Act Runner 服务" "Y"; then
+                systemctl start act-runner
+                sleep 2
+                if systemctl is-active --quiet act-runner; then
+                    print_success "Act Runner 服务启动成功"
+                else
+                    print_error "Act Runner 服务启动失败"
+                    print_info "查看日志: journalctl -u act-runner -n 50"
+                fi
+            fi
+        else
+            print_error "Act Runner 注册失败"
+            print_info "请手动运行注册命令: sudo -u git ${ACT_RUNNER_INSTALL_DIR}/act_runner register"
+        fi
+    else
+        print_info "您可以稍后手动注册: sudo -u git ${ACT_RUNNER_INSTALL_DIR}/act_runner register"
+    fi
+    
+    echo ""
+    print_info "注意: 已配置为在主机上直接运行，不使用 Docker"
+    echo ""
+    read -p "按回车键继续..."
+}
+
+# 删除 Act Runner (工作流)
+delete_act_runner() {
+    print_header "删除 Act Runner (Gitea Actions)"
+
+    # 检查 Act Runner 是否安装
+    if [[ ! -f "${ACT_RUNNER_INSTALL_DIR}/act_runner" ]]; then
+        print_error "Act Runner 未安装"
+        echo ""
+        read -p "按回车键继续..."
+        return 1
+    fi
+
+    # 停止服务
+    if systemctl is-active --quiet act-runner; then
+        print_info "正在停止 Act Runner 服务..."
+        systemctl stop act-runner
+        if systemctl is-active --quiet act-runner; then
+            print_error "Act Runner 服务停止失败"
+            echo ""
+            read -p "按回车键继续..."
+            return 1
+        fi
+        print_success "Act Runner 服务已停止"
+    fi
+
+    # 禁用服务
+    if systemctl is-enabled --quiet act-runner; then
+        print_info "正在禁用 Act Runner 服务..."
+        systemctl disable act-runner
+        print_success "Act Runner 服务已禁用"
+    fi
+
+    # 删除服务文件
+    if [[ -f "/etc/systemd/system/act-runner.service" ]]; then
+        print_info "正在删除 Act Runner 服务文件..."
+        rm -f "/etc/systemd/system/act-runner.service"
+        print_success "Act Runner 服务文件已删除"
+    fi
+
+    # 重载 systemd
+    print_info "正在重载 systemd 配置..."
+    systemctl daemon-reload
+    print_success "systemd 配置已重载"
+
+    # 删除安装目录
+    if [[ -d "${ACT_RUNNER_INSTALL_DIR}" ]]; then
+        print_info "正在删除 Act Runner 安装目录..."
+        rm -rf "${ACT_RUNNER_INSTALL_DIR}"
+        print_success "Act Runner 安装目录已删除"
+    fi
+
+    # 删除数据目录
+    if [[ -d "${ACT_RUNNER_DATA_DIR}" ]]; then
+        print_info "正在删除 Act Runner 数据目录..."
+        rm -rf "${ACT_RUNNER_DATA_DIR}"
+        print_success "Act Runner 数据目录已删除"
+    fi
+
+    print_success "Act Runner 已成功删除"
+    echo ""
+    read -p "按回车键继续..."
+}
+
 # 完整部署（一键安装，含HTTPS）
 full_deployment() {
     print_header "完整部署 Gitea（含 HTTPS）"
@@ -1599,10 +1804,17 @@ main() {
             11)
                 view_gitea_logs
                 ;;
+            12)
+                install_act_runner
+                ;;
+            13)
+                delete_act_runner
+                ;;
             0)
                 print_info "感谢使用，再见！"
                 exit 0
                 ;;
+
             *)
                 print_warning "无效选择，请重新输入"
                 sleep 1
