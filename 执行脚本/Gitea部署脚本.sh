@@ -1579,11 +1579,23 @@ install_act_runner() {
             print_info "为 git 用户添加 nvm 配置..."
             echo "" >> /home/git/.bashrc
             echo "# Load NVM" >> /home/git/.bashrc
-            echo "export NVM_DIR=\"\$HOME/.nvm\"" >> /home/git/.bashrc
+            echo "export NVM_DIR=\"/root/.nvm\"" >> /home/git/.bashrc
             echo "[ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\"  # This loads nvm" >> /home/git/.bashrc
             echo "[ -s \"\$NVM_DIR/bash_completion\" ] && \. \"\$NVM_DIR/bash_completion\"  # This loads nvm bash_completion" >> /home/git/.bashrc
             chown git:git /home/git/.bashrc
         fi
+    fi
+
+    # 创建 Node.js 符号链接到系统路径
+    print_info "创建 Node.js 符号链接..."
+    if [[ -f "/root/.nvm/versions/node/v24.14.0/bin/node" ]]; then
+        ln -sf /root/.nvm/versions/node/v24.14.0/bin/node /usr/local/bin/node
+        ln -sf /root/.nvm/versions/node/v24.14.0/bin/npm /usr/local/bin/npm
+        ln -sf /root/.nvm/versions/node/v24.14.0/bin/npx /usr/local/bin/npx
+        chmod +x /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
+        print_success "Node.js 符号链接创建成功"
+    else
+        print_warning "Node.js 可执行文件未找到，跳过创建符号链接"
     fi
 
     # 验证安装
@@ -1625,7 +1637,7 @@ Group=git
 WorkingDirectory=${ACT_RUNNER_DATA_DIR}
 Environment=HOME=/home/git
 Environment=NODE_VERSION=24
-ExecStartPre=/bin/bash -c 'source /home/git/.nvm/nvm.sh && nvm use 24'
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=${ACT_RUNNER_INSTALL_DIR}/act_runner daemon --config ${ACT_RUNNER_DATA_DIR}/config.yaml
 Restart=always
 RestartSec=3
