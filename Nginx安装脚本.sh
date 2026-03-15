@@ -181,7 +181,7 @@ download_sources() {
     if [[ ! -d "nginx-${NGINX_VERSION}/.git" ]]; then
         rm -rf "nginx-${NGINX_VERSION}"
         log_info "下载 Nginx ${NGINX_VERSION}..."
-        git clone https://git.13aq.com/sunbingchen/nginx.git "nginx-${NGINX_VERSION}" || {
+        git clone --depth 1 --single-branch --branch stable-1.26 https://git.13aq.com/sunbingchen/nginx.git "nginx-${NGINX_VERSION}" || {
             log_error "Nginx 下载失败"
             exit 1
         }
