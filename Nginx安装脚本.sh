@@ -181,7 +181,7 @@ download_sources() {
     if [[ ! -d "nginx-${NGINX_VERSION}/.git" ]]; then
         rm -rf "nginx-${NGINX_VERSION}"
         log_info "下载 Nginx ${NGINX_VERSION}..."
-        git clone https://github.com/geekmakersun/nginx.git "nginx-${NGINX_VERSION}" || {
+        git clone https://git.13aq.com/sunbingchen/nginx.git "nginx-${NGINX_VERSION}" || {
             log_error "Nginx 下载失败"
             exit 1
         }
@@ -428,7 +428,7 @@ install_error_pages() {
     # 从 git 仓库拉取错误页面
     if [[ ! -d "/var/www/error/.git" ]]; then
         rm -rf /var/www/error/*
-        git clone https://github.com/geekmakersun/error-html.git /tmp/error-html-tmp || {
+        git clone https://git.13aq.com/sunbingchen/error-html.git /tmp/error-html-tmp || {
             log_warn "错误页面仓库拉取失败，使用默认页面"
             # 创建基础错误页面
             for code in 400 401 403 404 500 502 503 504; do
